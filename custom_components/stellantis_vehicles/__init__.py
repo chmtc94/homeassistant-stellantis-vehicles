@@ -9,12 +9,13 @@ from homeassistant.helpers import issue_registry
 
 from .stellantis import StellantisVehicles
 from .exceptions import ComunicationError
+from .config_flow import StellantisVehiclesConfigFlow
 
 from .const import (
     DOMAIN,
     PLATFORMS,
     OTP_FILENAME,
-    FIELD_REMOTE_COMMANDS
+    FIELD_NOTIFICATIONS
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -54,10 +55,12 @@ async def async_unload_entry(hass: HomeAssistant, config: ConfigEntry) -> bool:
     stellantis = hass.data[DOMAIN][config.entry_id]
 
     if unload_ok := await hass.config_entries.async_unload_platforms(config, PLATFORMS):
-        hass.data[DOMAIN].pop(config.entry_id)
+        if stellantis.remote_commands and stellantis._mqtt:
+            stellantis._mqtt.disconnect()
 
-    if stellantis.remote_commands and stellantis._mqtt:
-        stellantis._mqtt.disconnect()
+        stellantis.reset_scheduled_tokens()
+
+        hass.data[DOMAIN].pop(config.entry_id)
 
     return unload_ok
 
@@ -126,7 +129,7 @@ async def async_migrate_entry(hass: HomeAssistant, config: ConfigEntry):
             else:
                 os.remove(old_otp_file_path)
         # Update config entry object
-        hass.config_entries.async_update_entry(config, version=1, minor_version=2)
+        hass.config_entries.async_update_entry(config, version=StellantisVehiclesConfigFlow.VERSION, minor_version=StellantisVehiclesConfigFlow.MINOR_VERSION)
         _LOGGER.debug("Migration to configuration version %s.%s successful", config.version, config.minor_version)
 
     if config.version == 1 and config.minor_version < 3:
@@ -136,7 +139,7 @@ async def async_migrate_entry(hass: HomeAssistant, config: ConfigEntry):
         if os.path.isdir(old_image_path):
             _LOGGER.debug(f"Deleting Stellantis old image folder: {old_image_path}")
             shutil.rmtree(old_image_path)
-        hass.config_entries.async_update_entry(config, version=1, minor_version=3)
+        hass.config_entries.async_update_entry(config, version=StellantisVehiclesConfigFlow.VERSION, minor_version=StellantisVehiclesConfigFlow.MINOR_VERSION)
         _LOGGER.debug("Migration to configuration version %s.%s successful", config.version, config.minor_version)
 
     if config.version == 1 and config.minor_version < 4:
@@ -150,7 +153,7 @@ async def async_migrate_entry(hass: HomeAssistant, config: ConfigEntry):
         data.pop("access_token", None)
         data.pop("refresh_token", None)
         data.pop("expires_in", None)
-        hass.config_entries.async_update_entry(config, data=data, version=1, minor_version=4)
+        hass.config_entries.async_update_entry(config, data=data, version=StellantisVehiclesConfigFlow.VERSION, minor_version=StellantisVehiclesConfigFlow.MINOR_VERSION)
         _LOGGER.debug("Migration to configuration version %s.%s successful", config.version, config.minor_version)
 
     if config.version == 1 and config.minor_version < 5:
@@ -191,7 +194,29 @@ async def async_migrate_entry(hass: HomeAssistant, config: ConfigEntry):
             return data
 
         new_data = await hass.async_add_executor_job(update_data, data)
-        hass.config_entries.async_update_entry(config, data=new_data, version=1, minor_version=5)
+        hass.config_entries.async_update_entry(config, data=new_data, version=StellantisVehiclesConfigFlow.VERSION, minor_version=StellantisVehiclesConfigFlow.MINOR_VERSION)
+        _LOGGER.debug("Migration to configuration version %s.%s successful", config.version, config.minor_version)
+
+    if config.version == 1 and config.minor_version < 6:
+        _LOGGER.debug("Migrating configuration from version %s.%s", config.version, config.minor_version)
+        data = dict(config.data)
+
+        def update_data(data):
+            public_path = hass.config.path("www")
+            customer_id = data["customer_id"]
+            entry_path = f"{public_path}/{DOMAIN}/{customer_id}"
+            if os.path.isdir(entry_path):
+                for vin in os.listdir(entry_path):
+                    vin_path = os.path.join(entry_path, vin)
+                    if os.path.isfile(vin_path):
+                        vin = os.path.splitext(vin)[0]
+                        if vin in data and "switch_notifications" in data[vin]:
+                            data[FIELD_NOTIFICATIONS] = data[vin]["switch_notifications"]
+                            data[vin].pop("switch_notifications", None)
+            return data
+
+        new_data = await hass.async_add_executor_job(update_data, data)
+        hass.config_entries.async_update_entry(config, data=new_data, version=StellantisVehiclesConfigFlow.VERSION, minor_version=StellantisVehiclesConfigFlow.MINOR_VERSION)
         _LOGGER.debug("Migration to configuration version %s.%s successful", config.version, config.minor_version)
 
     return True
