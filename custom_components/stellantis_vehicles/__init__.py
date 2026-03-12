@@ -6,6 +6,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import issue_registry
+from homeassistant.components.frontend import add_extra_js_url
+from homeassistant.components.http import StaticPathConfig
 
 from .stellantis import StellantisVehicles
 from .exceptions import ComunicationError
@@ -13,6 +15,7 @@ from .config_flow import StellantisVehiclesConfigFlow
 
 from .const import (
     DOMAIN,
+    INTEGRATION_VERSION,
     PLATFORMS,
     OTP_FILENAME,
     FIELD_NOTIFICATIONS
@@ -47,6 +50,12 @@ async def async_setup_entry(hass: HomeAssistant, config: ConfigEntry):
     for vehicle in vehicles:
         coordinator = await stellantis.async_get_coordinator(vehicle)
         await coordinator.async_config_entry_first_refresh()
+
+    url = f"/stellantis_vehicles/{INTEGRATION_VERSION}/stellantis-vehicle-card.js"
+    if url not in hass.data["frontend_extra_module_url"].urls:
+        file_path = os.path.join(os.path.dirname(__file__), "frontend", "stellantis-vehicle-card.js")
+        await hass.http.async_register_static_paths([StaticPathConfig(url, str(file_path), False)])
+        add_extra_js_url(hass, url)
 
     return True
 
@@ -218,5 +227,10 @@ async def async_migrate_entry(hass: HomeAssistant, config: ConfigEntry):
         new_data = await hass.async_add_executor_job(update_data, data)
         hass.config_entries.async_update_entry(config, data=new_data, version=StellantisVehiclesConfigFlow.VERSION, minor_version=StellantisVehiclesConfigFlow.MINOR_VERSION)
         _LOGGER.debug("Migration to configuration version %s.%s successful", config.version, config.minor_version)
+
+    # Global update of versions
+    if config.version < INTEGRATION_VERSION:
+        _LOGGER.debug("Entry version updated from %s.%s to %s.1", config.version, config.minor_version, INTEGRATION_VERSION)
+        hass.config_entries.async_update_entry(config, version=INTEGRATION_VERSION, minor_version=1)
 
     return True
