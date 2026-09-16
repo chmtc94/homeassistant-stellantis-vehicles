@@ -1,57 +1,73 @@
 # HomeAssistant - Stellantis Vehicles
+
 [![Active installations](https://img.shields.io/badge/active_installations-8043-%2318BCF2?style=for-the-badge&logo=homeassistant)](#)  
 [![Last version](https://img.shields.io/github/v/release/andreadegiovine/homeassistant-stellantis-vehicles?style=for-the-badge&logo=github&label=last%20version&color=green)](#)
 
-- [Requirements](#requirements)
-- [Features](#features)
-- [Installation](#installation)
-- [Screenshot](#screenshot)
-- [OAuth2 Code](#oauth2-code)
-- [Commands](#commands)
-- [Battery capacity / residual sensors](#battery-capacity--residual-sensors)
-- [Card: Stellantis Vehicles](#card-stellantis-vehicles)
-- [Global preferences](#global-preferences)
-- [Errors](#errors)
-  - [OTP error - NOK:MAXNBTOOLS](#otp-error---nokmaxnbtools)
-  - [OTP error - NOK:NOK_BLOCKED](#otp-error---noknok_blocked)
-  - [Get oauth code error](#get-oauth-code-error)
-  - [Command status 901 and 300 - Wakeup timeout](#command-status-901-and-300---wakeup-timeout)
-- [ABRP - A Better Routeplanner](#abrp---a-better-routeplanner)
-- [Support the project](#support-the-project)
+- [HomeAssistant - Stellantis Vehicles](#homeassistant---stellantis-vehicles)
+  - [Requirements](#requirements)
+  - [Features](#features)
+  - [Installation](#installation)
+  - [Screenshot](#screenshot)
+    - [Entities](#entities)
+    - [Vehicle Card](#vehicle-card)
+  - [OAuth2 Code](#oauth2-code)
+    - [Remote service](#remote-service)
+    - [Manual](#manual)
+  - [Commands](#commands)
+    - [WakeUp](#wakeup)
+    - [Air conditioning Start/Stop](#air-conditioning-startstop)
+  - [Battery capacity / residual sensors](#battery-capacity--residual-sensors)
+  - [Card: Stellantis Vehicles](#card-stellantis-vehicles)
+  - [Global preferences](#global-preferences)
+  - [Errors](#errors)
+    - [OTP error - NOK:MAXNBTOOLS](#otp-error---nokmaxnbtools)
+    - [OTP error - NOK:NOK\_BLOCKED](#otp-error---noknok_blocked)
+    - [Get oauth code error](#get-oauth-code-error)
+    - [Command status 901 and 300 - Wakeup timeout](#command-status-901-and-300---wakeup-timeout)
+  - [ABRP - A Better Routeplanner](#abrp---a-better-routeplanner)
+  - [Contributors \& Translations](#contributors--translations)
+    - [Special thanks:](#special-thanks)
+  - [Support the project](#support-the-project)
+    - [Want to join the Club?](#want-to-join-the-club)
 
 > Currently only <ins>PSA vehicles</ins> are compatibile.
 
 | Peugeot                              | Citroën                              | DS                         | Opel                           | Vauxhall                               |
-|--------------------------------------|--------------------------------------|----------------------------|--------------------------------|----------------------------------------|
+| ------------------------------------ | ------------------------------------ | -------------------------- | ------------------------------ | -------------------------------------- |
 | ![MyPeugeot](./images/MyPeugeot.png) | ![MyCitroen](./images/MyCitroen.png) | ![MyDS](./images/MyDS.png) | ![MyOpel](./images/MyOpel.png) | ![MyVauxhall](./images/MyVauxhall.png) |
 
 **Inspired by [PSA Car Controller](https://github.com/flobz/psa_car_controller) (OTP step its a fork). Thanks to [Florian BEZANNIER](https://github.com/flobz) for his great work**
 
 ## Requirements
+
 Get status:
+
 - **Vehicle native mobile app** installed and active;
 - **Use a pc for autentication**;
 
 Send remote commands:
+
 - Get status requirements;
 - **Remote service** actived (E-remote or Connect Plus);
 
 > Currently Stellantis not provide B2C api credentials, this integration use the mobile apps api credentials and login flow.
 
 ## Features
-|                            | Electric / Hybrid | Thermic | E-remote control | Remote control  | Connect Plus |
-|----------------------------|:-----------------:|:-------:|:----------------:|:---------------:|:------------:|
-| Get status                 |        ✔️         |   ✔️    |        ✔️        |                 |      ✔️      |
-| Wake up                    |        ✔️         |   ✔️    |        ✔️        |                 |      ✔️      |
-| ABRP sync                  |        ✔️         |   ✔️    |        ✔️        |                 |      ✔️      |
-| Preconditioning start/stop |        ✔️         |   ✔️    |        ✔️        |                 |      ✔️      |
-| Doors open/close           |        ✔️         |   ✔️    |                  |       ✔️        |      ✔️      |
-| Flash lights               |        ✔️         |   ✔️    |                  |       ✔️        |      ✔️      |
-| Honk the horn              |        ✔️         |   ✔️    |                  |       ✔️        |      ✔️      |
-| Charging start/stop        |        ✔️         |         |        ✔️        |                 |      ✔️      |
-| Charging limit             |        ✔️         |         |        ✔️        |                 |      ✔️      |
+
+|                            | Electric / Hybrid | Thermic | E-remote control | Remote control | Connect Plus |
+| -------------------------- | :---------------: | :-----: | :--------------: | :------------: | :----------: |
+| Get status                 |        ✔️         |   ✔️    |        ✔️        |                |      ✔️      |
+| Wake up                    |        ✔️         |   ✔️    |        ✔️        |                |      ✔️      |
+| ABRP sync                  |        ✔️         |   ✔️    |        ✔️        |                |      ✔️      |
+| Preconditioning start/stop |        ✔️         |   ✔️    |        ✔️        |                |      ✔️      |
+| Doors open/close           |        ✔️         |   ✔️    |                  |       ✔️       |      ✔️      |
+| Flash lights               |        ✔️         |   ✔️    |                  |       ✔️       |      ✔️      |
+| Honk the horn              |        ✔️         |   ✔️    |                  |       ✔️       |      ✔️      |
+| Charging start/stop        |        ✔️         |         |        ✔️        |                |      ✔️      |
+| Charging limit             |        ✔️         |         |        ✔️        |                |      ✔️      |
 
 ## Installation
+
 <details><summary><b>Using HACS</b></summary>
 
 1. Go to [HACS](https://hacs.xyz/) section;
@@ -69,16 +85,22 @@ Send remote commands:
 </details>
 
 ## Screenshot
+
 ### Entities
+
 ![Controls](./images/controls.png)
 ![Sensors](./images/sensors.png)
+
 ### Vehicle Card
+
 ![Card](./images/card.png)
 
 Documented on [Card: Stellantis Vehicles](#card-stellantis-vehicles) section.
 
 ## OAuth2 Code
+
 ### Remote service
+
 This **[remote service](https://github.com/andreadegiovine/homeassistant-stellantis-vehicles-worker-v2)** simulates a browser login session on the official website to authenticate your account.
 
 <ins>**Your credentials are neither stored nor shared**</ins>
@@ -93,6 +115,7 @@ its URL in the "Login service URL" field of the config flow's remote-login step 
 default one.
 
 ### Manual
+
 <details><summary><b>Using browser console</b></summary>
 
 As described on config flow, please get the right code from the mobile app redirect like this example (Chrome browser):
@@ -112,9 +135,11 @@ Thanks to [@benbox69](https://github.com/benbox69) for creating this awesome ext
 </details>
 
 ## Commands
+
 To use remote commands, the "E-remote" or "Connect Plus" service must be activated and configured in the vehicle.
 
 How to complete the OTP step and activate remote commands:
+
 <details><summary><b>New configuration</b></summary>
 
 ![Enable remote commands](./images/remote-commands-1.png)
@@ -127,6 +152,7 @@ How to complete the OTP step and activate remote commands:
 </details>
 
 ### WakeUp
+
 For some vehicles no updates are received a few minutes after the engine is turned off. Use automations like these to schedule the vehicle wake up:
 
 ```yaml
@@ -168,23 +194,29 @@ For some vehicles no updates are received a few minutes after the engine is turn
       target:
         entity_id: button.#####VIN#####_wakeup
 ```
+
 \* the entity names above are in english, please use your language entity names.
 
 <ins>**Some users report that performing too many wakeups drains the service battery, making some features unavailable (such as keyless entry)**</ins>.
 
 ### Air conditioning Start/Stop
+
 As described in the Stellantis apps, the command is enabled when:
+
 1. The vehicle engine is off;
 2. The vehicle doors are locked;
 3. The battery level is at least ~~50% (20% for hybrids)~~ 20% or in charging ([#226](https://github.com/andreadegiovine/homeassistant-stellantis-vehicles/issues/226));
 
 ## Battery capacity / residual sensors
+
 Thanks to the community ([#272](https://github.com/andreadegiovine/homeassistant-stellantis-vehicles/issues/272)), it seems that for some vehicles **Stellantis provides incorrect values**. The **switch.battery_values_correction** entity (in your language) applies a correction if active.
 
 \*currently only to the battery_residual sensor
 
 ## Card: Stellantis Vehicles
+
 A new custom card is available to manage the vehicle, the card is configurable from the visual editor or via yaml:
+
 ```
 type: custom:stellantis-vehicle-card
 entity: device_tracker.#####VIN#####_vehicle
@@ -208,6 +240,7 @@ hide_map: false
 hide_last_trip: false
 hide_last_charge: false
 ```
+
 \* the entity names above are in english, please use your language entity names.
 
 Some users report bugs during first use or after page refresh ([#440](https://github.com/andreadegiovine/homeassistant-stellantis-vehicles/issues/440), [#441](https://github.com/andreadegiovine/homeassistant-stellantis-vehicles/issues/441)), it seems like a browser or mobile app cache issue.
@@ -215,30 +248,37 @@ Some users report bugs during first use or after page refresh ([#440](https://gi
 To reset mobile app cache try: **Settings > app settings > Problem solving > Reset frontend cache**
 
 ## Global preferences
+
 These initial choices can be changed in the **Reconfigure** flow under **Global preferences**:
+
 - Enable persistent notifications
 - Anonymize personal data on logs
 
 Thanks to the community ([#414](https://github.com/andreadegiovine/homeassistant-stellantis-vehicles/issues/414)), it seems that for some hardware, the "Anonymize personal data on logs" feature makes the environment unstable. It is recommended to disable this feature and enable it only when you need to share logs.
 
 ## Errors
+
 <ins>Before any issue request, please check the integration log and look for solution below</ins>.
 
 ### OTP error - NOK:MAXNBTOOLS
+
 It seems that this error is due to reaching the limit of associated devices / SMS received. Restore your Stellantis account and try again:
 [Follow this procedure from Peugeot community](https://peugeot.my-customerportal.com/peugeot/s/article/AP-I-have-problems-with-the-pin-safety-code-or-I-want-to-change-it-What-can-I-do?language=en_GB).
 
 <ins>**This operation removes the devices connected to your vehicle, no vehicle data will be lost**</ins>.
 
 ### OTP error - NOK:NOK_BLOCKED
+
 It seems that this error is due to reaching the limit of wrong PIN used. Re-authenticate the integration.
 
 ### Get oauth code error
+
 As described in the "OAuth2 Code > [Remote service](#remote-service)" section, this free service has usage limitations.  
 If you've hit these limits, please wait and try again.  
 If the problem persists or is unrelated to usage limits, please use "OAuth2 Code > [Manual](#manual)" mode.
 
 ### Command status 901 and 300 - Wakeup timeout
+
 **901 (Wakeup Vehicle)** is the wakeup command being forwarded from the Stellantis backend to your vehicle, it doesn't say anything about the vehicle's state by itself. If it's followed by **300 (Timeout)** instead of **0 (Complete)**, the vehicle didn't respond, which means it's in a deep sleep.
 
 Stellantis disables connectivity to protect the 12V battery, the vehicle apps explain it like this:
@@ -250,7 +290,9 @@ This is tracked per vehicle, not per integration: any trip shorter than 15 minut
 To avoid repeated timeouts, take at least one trip longer than 15 minutes every 7 days.
 
 ## ABRP - A Better Routeplanner
+
 Get a token from [ABRP](https://abetterrouteplanner.com/):
+
 1. Login to your account;
 2. Navigate to vehicle settings;
 3. Navigate to real time data;
@@ -260,11 +302,13 @@ Get a token from [ABRP](https://abetterrouteplanner.com/):
 Use the generated token in **abrp_token sensor** and enable **abrp_sync switch** to send updates.
 
 ## Contributors & Translations
+
 Start from the "**develop**" branch and submit PRs in that branch.
 
 Commit messages are included as release notes, please keep them short and understandable.
 
 Before each PR please test:
+
 - New installation;
 - Reconfiguration;
 - Commands;
@@ -276,53 +320,58 @@ If the checklist is complete, the PR will be merged and will be released a BETA 
 Thanks to all users who contribute to this integration by updating translations and reporting issues.
 
 ### Special thanks:
+
 - [@MoellerDi](https://github.com/MoellerDi) for the great work and big support;
 - [@benbox69](https://github.com/benbox69) for the python oauth2 helper tool;
 - [@khenderick](https://github.com/khenderick) for the great work and big support;
 
 Thanks to everyone for the issues, especially to:
+
 - [@chmtc94](https://github.com/chmtc94);
 - [@FrankTub](https://github.com/FrankTub);
 - [@Jordan87](https://github.com/Jordan87);
 
 ## Support the project
+
 **The latest heroes who believe in this project** 👇
 
 **🏆 MONTHLY BEERS**  
-Harald  
+Harald
 
 **🥈 10 BEERS**  
 Rüdiger  
 Andrea Donno  
-Fabian  
+Fabian
 
 **🥉 5 BEERS**  
 Someone  
 Dieter  
 SA Energy  
-<sub>*and other heroes*</sub>
+<sub>_and other heroes_</sub>
 
 **⭐ 4 BEERS**  
-Al  
+Al
 
 **⭐ 3 BEERS**  
 Adam Szczerba  
 Hubert  
 Someone  
-<sub>*and other heroes*</sub>
+<sub>_and other heroes_</sub>
 
 **⭐ 2 BEERS**  
 Ludvik  
+Ludvik  
 Liam  
 Kristian  
-<sub>*and other heroes*</sub>
+<sub>_and other heroes_</sub>
 
 **⭐ 1 BEERS**  
-Someone  
-RapH  
 elektrofc@gmx.de  
-<sub>*and other heroes*</sub>
+Mathi  
+Tarboeuf  
+<sub>_and other heroes_</sub>
 
 ### Want to join the Club?
+
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/andreatito)  
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/W7W11C9QJ7)
