@@ -21,6 +21,7 @@ from homeassistant.exceptions import ( ConfigEntryAuthFailed, ServiceValidationE
 from homeassistant.helpers import issue_registry as ir
 
 from .utils import ( time_from_pt_string, get_datetime, date_from_pt_string, time_from_string, rate_limit, log_call, SENSITIVE_DATA_FILTER )
+from .utils import ( time_from_pt_string, get_datetime, date_from_pt_string, time_from_string, rate_limit, log_call, SENSITIVE_DATA_FILTER )
 
 from .const import (
     DOMAIN,
@@ -36,10 +37,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-# Attached once, at import: the coordinator used to addFilter() a fresh
-# instance on every init (one per vehicle, on every setup and reload), and
-# nothing ever removed the old one, so filters stacked on this logger
-# (issue #414, PR #593).
 _LOGGER.addFilter(SENSITIVE_DATA_FILTER)
 
 class StellantisVehicleCoordinator(DataUpdateCoordinator):
@@ -65,10 +62,6 @@ class StellantisVehicleCoordinator(DataUpdateCoordinator):
         self._privacy_full_logged = False
         self._empty_status_count = 0
         self._vehicle_removed = False
-        # Set once the maintenance endpoint has returned an empty result, so it
-        # is not polled again for the lifetime of this coordinator (issue #623:
-        # some vehicles 404 on every request and flooded the logs).
-        self._maintenance_unsupported = False
 
     @log_call
     async def _async_update_data(self) -> dict[str, Any] | None:

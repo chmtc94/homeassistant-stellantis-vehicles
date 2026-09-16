@@ -13,8 +13,10 @@ from datetime import ( datetime, timedelta )
 import socket
 import random
 from typing import Any
+from typing import Any
 
 from homeassistant.core import ( HomeAssistant, HassJob)
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import translation
 from homeassistant.exceptions import ConfigEntryAuthFailed
@@ -29,6 +31,7 @@ from homeassistant.util.ssl import client_context
 
 from .base import StellantisVehicleCoordinator
 from .otp.otp import Otp, save_otp, load_otp, ConfigException
+from .utils import ( get_datetime, rate_limit, SENSITIVE_DATA_FILTER, replace_string_placeholders, log_call )
 from .utils import ( get_datetime, rate_limit, SENSITIVE_DATA_FILTER, replace_string_placeholders, log_call )
 from .exceptions import ( CommunicationError, RateLimitException )
 
@@ -73,10 +76,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-# Attached once, at import: StellantisBase.__init__ used to build and
-# addFilter() a fresh instance on every instantiation (every config-flow
-# attempt, every reload), and nothing ever removed the old one, so filters
-# stacked on this logger (issue #414, PR #593).
 _LOGGER.addFilter(SENSITIVE_DATA_FILTER)
 
 
@@ -143,6 +142,8 @@ class StellantisBase:
 
         # Shared instance, already attached to the module loggers at import time.
         self.logger_filter = SENSITIVE_DATA_FILTER
+        # Shared instance, already attached to the module loggers at import time.
+        self.logger_filter = SENSITIVE_DATA_FILTER
 
     def start_session(self):
         if not self._session:
@@ -166,12 +167,22 @@ class StellantisBase:
             })
 
     def save_config(self, data:dict[str, Any]) -> None:
+    def save_config(self, data:dict[str, Any]) -> None:
         for key in data:
             self._config[key] = data[key]
             if key == FIELD_MOBILE_APP and FIELD_COUNTRY_CODE in self._config:
                 self.set_mobile_app(data[key], self._config[FIELD_COUNTRY_CODE])
             elif key == FIELD_COUNTRY_CODE and FIELD_MOBILE_APP in self._config:
                 self.set_mobile_app(self._config[FIELD_MOBILE_APP], data[key])
+        # save_config() is the single choke point through which oauth / mqtt
+        # token rotations and per-vehicle settings reach self._config. Refresh
+        # the log filter's snapshot for this entry here, so it always masks the
+        # current tokens - the token-refresh code no longer has to register each
+        # rotated value by hand, which used to grow the filter without bound
+        # (issue #414). No-op until set_entry() has run (config-flow phase).
+        entry = getattr(self, "_entry", None)
+        if entry is not None:
+            self.logger_filter.set_entry_values(entry.entry_id, self._config)
         # save_config() is the single choke point through which oauth / mqtt
         # token rotations and per-vehicle settings reach self._config. Refresh
         # the log filter's snapshot for this entry here, so it always masks the
@@ -512,7 +523,9 @@ class StellantisVehicles(StellantisOauth):
         self._oauth_token_retry = 0
 
     def set_entry(self, entry:ConfigEntry) -> None:
+    def set_entry(self, entry:ConfigEntry) -> None:
         self._entry = entry
+        self.logger_filter.set_entry_values(entry.entry_id, self._config)
         self.logger_filter.set_entry_values(entry.entry_id, self._config)
 
     def update_stored_config(self, config, value):
@@ -540,6 +553,8 @@ class StellantisVehicles(StellantisOauth):
         self.update_stored_config("vehicles", vehicles)
         # Through save_config() so the log filter's snapshot picks up the VIN.
         self.save_config({"vehicles": deepcopy(vehicles)})
+        # Through save_config() so the log filter's snapshot picks up the VIN.
+        self.save_config({"vehicles": deepcopy(vehicles)})
 
     def get_vehicle_stored_config(self, vin, key):
         vehicle = self.get_vehicles_stored_config().get(vin)
@@ -555,6 +570,8 @@ class StellantisVehicles(StellantisOauth):
             return []
         new_vehicles = {vin: deepcopy(value) for vin, value in vehicles.items() if vin not in stale}
         self.update_stored_config("vehicles", new_vehicles)
+        # Through save_config() so the log filter's snapshot drops the stale VINs.
+        self.save_config({"vehicles": deepcopy(new_vehicles)})
         # Through save_config() so the log filter's snapshot drops the stale VINs.
         self.save_config({"vehicles": deepcopy(new_vehicles)})
         _LOGGER.info("Removed stored config for vehicles no longer on the account: %s", ", ".join(stale))
@@ -626,6 +643,9 @@ class StellantisVehicles(StellantisOauth):
         Called from async_unload_entry on a normal unload or reload, and from
         the setup-failure paths in async_setup_entry (Home Assistant does not
         call async_unload_entry when async_setup_entry raises).
+        Called from async_unload_entry on a normal unload or reload, and from
+        the setup-failure paths in async_setup_entry (Home Assistant does not
+        call async_unload_entry when async_setup_entry raises).
         """
         self._shutting_down = True
 
@@ -645,6 +665,12 @@ class StellantisVehicles(StellantisOauth):
 
         # Close the shared aiohttp session.
         await self.close_session()
+
+        # Now that the paho thread is joined and nothing can still log for this
+        # entry, drop its values from the shared log filter so the compiled mask
+        # pattern shrinks back. No-op if set_entry() never ran.
+        if self._entry is not None:
+            self.logger_filter.remove_entry_values(self._entry.entry_id)
 
         # Now that the paho thread is joined and nothing can still log for this
         # entry, drop its values from the shared log filter so the compiled mask
@@ -708,9 +734,6 @@ class StellantisVehicles(StellantisOauth):
     @log_call
     @rate_limit(6, 1800) # 6 per 30 min
     async def refresh_oauth_token_request(self) -> None:
-        # save_config() below rotates this out of the masked set before it
-        # appears in the exchange log's request URL - register it separately.
-        self.logger_filter.add_custom_value((self.get_config("oauth") or {}).get("refresh_token"))
         url = self.apply_query_params(OAUTH_TOKEN_URL, OAUTH_REFRESH_TOKEN_QUERY_PARAMS)
         headers = self.apply_dict_params(OAUTH_TOKEN_HEADERS)
         token_request = await self.make_http_request(url, 'POST', headers)
@@ -722,10 +745,11 @@ class StellantisVehicles(StellantisOauth):
         # Persist first (save_config refreshes the log filter's masked values),
         # then log the raw response - so the freshly issued tokens are masked in
         # the line below instead of being registered by hand every rotation.
+        # Persist first (save_config refreshes the log filter's masked values),
+        # then log the raw response - so the freshly issued tokens are masked in
+        # the line below instead of being registered by hand every rotation.
         self.save_config({"oauth": new_config})
         self.update_stored_config("oauth", new_config)
-        if "id_token" in token_request:
-            self.logger_filter.add_custom_value(token_request["id_token"])
         _log_http_exchange(url, headers, token_request)
 
     @log_call
@@ -746,7 +770,20 @@ class StellantisVehicles(StellantisOauth):
             if "_embedded" in vehicles_request:
                 if "vehicles" in vehicles_request["_embedded"]:
                     account_ids = set()
+                    account_ids = set()
                     for vehicle in vehicles_request["_embedded"]["vehicles"]:
+                        account_ids.add(vehicle["vin"])
+                        account_ids.add(vehicle["id"])
+                    # Register the account's VINs / ids for the entry's lifetime
+                    # so they stay masked even for a vehicle with no stored
+                    # per-vehicle config. During the config flow there is no
+                    # entry yet, so fall back to the bounded FIFO.
+                    entry = getattr(self, "_entry", None)
+                    if entry is not None:
+                        self.logger_filter.set_entry_extra_values(entry.entry_id, account_ids)
+                    else:
+                        for value in account_ids:
+                            self.logger_filter.add_custom_value(value)
                         account_ids.add(vehicle["vin"])
                         account_ids.add(vehicle["id"])
                     # Register the account's VINs / ids for the entry's lifetime
@@ -911,6 +948,7 @@ class StellantisVehicles(StellantisOauth):
 
     @log_call
     async def refresh_mqtt_token_request(self, access_token_only:bool = False) -> None:
+    async def refresh_mqtt_token_request(self, access_token_only:bool = False) -> None:
         url = self.apply_query_params(GET_MQTT_TOKEN_URL, CLIENT_ID_QUERY_PARAMS)
         headers = self.apply_dict_params(GET_OTP_HEADERS)
         mqtt_config = self.get_config("mqtt")
@@ -922,9 +960,18 @@ class StellantisVehicles(StellantisOauth):
             except ConfigEntryAuthFailed:
                 _LOGGER.warning("Attempt to refresh MQTT access_token/refresh_token failed. This is NOT an error as long as the following attempt to refresh only the access_token (using current refresh_token) succeeds")
                 return await self.refresh_mqtt_token_request(access_token_only=True)
+                _LOGGER.warning("Attempt to refresh MQTT access_token/refresh_token failed. This is NOT an error as long as the following attempt to refresh only the access_token (using current refresh_token) succeeds")
+                return await self.refresh_mqtt_token_request(access_token_only=True)
         else:
             json_data = self.apply_dict_params(MQTT_REFRESH_TOKEN_JSON_DATA)
             token_request = await self.make_http_request(url, 'POST', headers, None, json_data)
+        if "access_token" not in token_request:
+            _LOGGER.warning("Refreshing mqtt access_token failed (no access_token in response)")
+            # An error body should not carry a valid rotating secret, but mask a
+            # refresh_token if one is present before logging the exchange.
+            if isinstance(token_request, dict) and token_request.get("refresh_token"):
+                self.logger_filter.add_custom_value(token_request["refresh_token"])
+            _log_http_exchange(url, headers, token_request)
         if "access_token" not in token_request:
             _LOGGER.warning("Refreshing mqtt access_token failed (no access_token in response)")
             # An error body should not carry a valid rotating secret, but mask a
@@ -940,8 +987,11 @@ class StellantisVehicles(StellantisOauth):
             mqtt_config["refresh_token_expires_at"] = (get_datetime() + timedelta(minutes=int(MQTT_REFRESH_TOKEN_TTL))).isoformat()
         # Persist first (save_config refreshes the log filter's masked values),
         # then log the raw response - see refresh_oauth_token_request().
+        # Persist first (save_config refreshes the log filter's masked values),
+        # then log the raw response - see refresh_oauth_token_request().
         self.save_config({"mqtt": mqtt_config})
         self.update_stored_config("mqtt", mqtt_config)
+        _log_http_exchange(url, headers, token_request)
         _log_http_exchange(url, headers, token_request)
 
     @log_call

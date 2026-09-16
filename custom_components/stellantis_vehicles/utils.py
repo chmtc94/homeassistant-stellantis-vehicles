@@ -166,36 +166,18 @@ class SensitiveDataFilter(logging.Filter):
       ``save_config``), so a rotated oauth/mqtt token supersedes the previous
       one instead of piling up. Keyed by ``entry_id`` so several accounts do
       not overwrite each other's tokens.
-    - ``_entry_extra`` keeps, per ``entry_id``, values that never reach the
-      stored config but must stay masked for the entry's whole lifetime (the
-      account's VINs and vehicle ids from the live vehicle list). Populated
-      by ``set_entry_extra_values``, kept separate from ``_entry_values`` so
-      a later config snapshot cannot drop it, and out of the bounded
-      ``_custom_values`` below so it is never evicted.
-    - ``_custom_values`` is a bounded, insertion-ordered set, filled by
-      ``add_custom_value``, for values seen outside the stored config that
-      are not (yet) tied to a loaded entry (the OAuth code / id_token during
-      the auth flow, before ``set_entry`` has run). It is capped because
-      those values rotate; anything that must stay masked for an entry's
-      lifetime lives in ``_entry_values`` or ``_entry_extra`` instead.
+    - ``_custom_values`` is a bounded, insertion-ordered set for values seen
+      outside the stored config (the OAuth code / id_token during the auth
+      flow, vehicle ids from API responses). It is capped because those values
+      rotate; anything that must stay masked for an entry's lifetime lives in
+      ``_entry_values``.
     - Every mutating method rebinds its container instead of mutating it in
       place, so the filter can be read from the paho-mqtt network thread while
       the event loop updates it, without a "changed size during iteration".
-    - ``REDACT_KEYS`` is a different mechanism: a value under one of these keys
-      (GPS position, ABRP telemetry) is replaced wholesale regardless of its
-      content. Unlike the value-based masking above, these values change on
-      every read, so there is no specific string to register and match.
-    - ``_PAGE_TOKEN_RE`` masks a pagination token wherever it appears as
-      ``pageToken=...`` in a logged string, e.g. in the ``_links.*.href``
-      URLs the API echoes back. Those hrefs turn up in more than one
-      endpoint's response, so this is matched unconditionally instead of
-      registering every token value seen.
     """
 
-    MASKED_ENTRY_KEYS = ("access_token", "refresh_token", "oauth_code", "customer_id", "text_abrp_token")
+    MASKED_ENTRY_KEYS = ("access_token", "refresh_token", "oauth_code", "customer_id")
     CUSTOM_VALUES_LIMIT = 128
-    REDACT_KEYS = ("lastPosition", "coordinates", "latitude", "longitude", "tlm")
-    _PAGE_TOKEN_RE = re.compile(r"(pageToken=)[^&\"'\s]+")
 
     def __init__(self) -> None:
         super().__init__()
@@ -209,6 +191,20 @@ class SensitiveDataFilter(logging.Filter):
         self._entry_anonymize: dict[str, bool] = {}
         self._custom_values: dict[str, None] = {}
         self._pattern_cache: re.Pattern[str] | None = None
+
+    def get_masked_values(self, data:dict[str, Any], result:list[Any] | None = None) -> list[Any]:
+        """Collect the values of any MASKED_ENTRY_KEYS key found anywhere in a (possibly nested) config dict."""
+        if result is None:
+            result = []
+        for key, value in data.items():
+            if isinstance(value, dict):
+                self.get_masked_values(value, result)
+            if key in self.MASKED_ENTRY_KEYS:
+            if isinstance(value, dict):
+                self.get_masked_values(value, result)
+            if key in self.MASKED_ENTRY_KEYS:
+                result.append(value)
+        return result
 
     def set_entry_values(self, entry_id:str, entry_data:dict[str, Any] | None) -> None:
         """Store (replacing any previous snapshot) one config entry's sensitive
@@ -225,17 +221,6 @@ class SensitiveDataFilter(logging.Filter):
         }
         self._pattern_cache = None
 
-    def get_masked_values(self, data:dict[str, Any], result:list[Any] | None = None) -> list[Any]:
-        """Collect the values of any MASKED_ENTRY_KEYS key found anywhere in a (possibly nested) config dict."""
-        if result is None:
-            result = []
-        for key, value in data.items():
-            if isinstance(value, dict):
-                self.get_masked_values(value, result)
-            if key in self.MASKED_ENTRY_KEYS:
-                result.append(value)
-        return result
-
     def set_entry_extra_values(self, entry_id:str, values:set[str]) -> None:
         """Register extra always-mask values for an entry (its account's VINs
         and vehicle ids from the live vehicle list). Replaces the previous set
@@ -244,6 +229,19 @@ class SensitiveDataFilter(logging.Filter):
             **self._entry_extra,
             entry_id: {str(v) for v in values if v},
         }
+        self._pattern_cache = None
+
+    def remove_entry_values(self, entry_id:str) -> None:
+        """Forget a config entry on unload so its (now invalid) tokens stop
+        being masked and the compiled pattern shrinks back."""
+        if entry_id not in self._entry_values and entry_id not in self._entry_extra:
+            return
+        self._entry_values = {k: v for k, v in self._entry_values.items() if k != entry_id}
+        self._entry_extra = {k: v for k, v in self._entry_extra.items() if k != entry_id}
+        self._entry_anonymize = {k: v for k, v in self._entry_anonymize.items() if k != entry_id}
+        # Nothing loaded any more -> drop the process-global extras too.
+        if not self._entry_values and not self._entry_extra:
+            self._custom_values = {}
         self._pattern_cache = None
 
     def add_custom_value(self, value:Any) -> None:
@@ -260,26 +258,20 @@ class SensitiveDataFilter(logging.Filter):
         self._custom_values = updated
         self._pattern_cache = None
 
-    def remove_entry_values(self, entry_id:str) -> None:
-        """Forget a config entry on unload: drop its values from both
-        _entry_values and _entry_extra, so its now-invalid tokens and VINs
-        stop being masked and the compiled pattern shrinks back. Once no
-        entry remains, also clears the shared _custom_values FIFO."""
-        if entry_id not in self._entry_values and entry_id not in self._entry_extra:
-            return
-        self._entry_values = {k: v for k, v in self._entry_values.items() if k != entry_id}
-        self._entry_extra = {k: v for k, v in self._entry_extra.items() if k != entry_id}
-        self._entry_anonymize = {k: v for k, v in self._entry_anonymize.items() if k != entry_id}
-        # Nothing loaded any more -> drop the process-global extras too.
-        if not self._entry_values and not self._entry_extra:
-            self._custom_values = {}
-        self._pattern_cache = None
-
     @property
     def compiled_patterns(self) -> re.Pattern[str] | None:
-        """Return (and cache) a compiled regex matching every currently tracked value (from loaded entries plus the custom-values FIFO), or None when there is nothing to mask."""
+        """Return (and cache) a compiled regex matching every value currently masked for any loaded entry, or None when there is nothing to mask."""
         if self._pattern_cache is not None:
             return self._pattern_cache
+        # Snapshot the container references once - they may be rebound from
+        # another thread while this runs.
+        entry_values = self._entry_values
+        entry_extra = self._entry_extra
+        valid_values = set(self._custom_values)
+        for group in (entry_values, entry_extra):
+            for values in group.values():
+                valid_values |= values
+        valid_values = {v for v in valid_values if v}
         # Snapshot the container references once - they may be rebound from
         # another thread while this runs.
         entry_values = self._entry_values
@@ -300,6 +292,8 @@ class SensitiveDataFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         """Redact masked values in the record's message and args when any loaded entry enabled anonymization; always returns True, so no record is ever dropped."""
         if any(self._entry_anonymize.values()):
+        """Redact masked values in the record's message and args when any loaded entry enabled anonymization; always returns True, so no record is ever dropped."""
+        if any(self._entry_anonymize.values()):
             record.msg = self._mask_value(record.msg)
             if record.args:
                 if isinstance(record.args, dict):
@@ -312,7 +306,7 @@ class SensitiveDataFilter(logging.Filter):
         return True
 
     def _mask_value(self, value: Any) -> Any:
-        """Return the value with masked strings redacted, recursing into dict / list / tuple, decoding bytes / bytearray, and stringifying exceptions."""
+        """Return the value with masked strings redacted, recursing into dict / list / tuple and decoding bytes / bytearray."""
         if value is None:
             return value
 
@@ -323,35 +317,16 @@ class SensitiveDataFilter(logging.Filter):
         elif isinstance(value, str):
             return self._mask_string(value)
         elif isinstance(value, (bytes, bytearray)):
-            # MQTT payloads are logged as raw bytes. If they parse as JSON,
-            # mask the parsed structure (so REDACT_KEYS also applies there);
-            # otherwise fall back to substring-masking the decoded text.
+            # MQTT payloads are logged as raw bytes; mask the decoded text so a
+            # VIN or token inside the JSON payload is still redacted.
             text = value.decode("utf-8", "replace")
-            try:
-                parsed = json.loads(text)
-            except ValueError:
-                parsed = None
-            if isinstance(parsed, (dict, list)):
-                masked_parsed = self._mask_value(parsed)
-                # Compare structurally, not the reformatted JSON string, so an
-                # untouched payload keeps its exact original bytes.
-                if masked_parsed == parsed:
-                    return value
-                return json.dumps(masked_parsed).encode("utf-8", "replace")
             masked = self._mask_string(text)
             return value if masked == text else masked.encode("utf-8", "replace")
-        elif isinstance(value, BaseException):
-            return self._mask_string(str(value))
 
         return value
 
     def _mask_dict(self, data: Dict) -> Dict:
-        """Return a new dict with every key and value passed through _mask_value.
-
-        A key in REDACT_KEYS is the exception: when its value is truthy, that
-        value is replaced wholesale instead of being recursed into or
-        substring-matched (see REDACT_KEYS).
-        """
+        """Return a new dict with every key and value passed through _mask_value."""
         masked = {}
         for key, value in data.items():
             masked_key = self._mask_value(key)
@@ -363,13 +338,13 @@ class SensitiveDataFilter(logging.Filter):
 
     def _mask_string(self, value: str) -> str:
         """Return the string with every occurrence of a masked value replaced by its redacted form."""
-        value = self._PAGE_TOKEN_RE.sub(r"\1###", value)
         pattern = self.compiled_patterns
         if pattern:
             return pattern.sub(lambda m: self._mask_sensitive_value(m.group(0)), value)
         return value
 
     def _mask_sensitive_value(self, value: Any) -> str:
+        """Redact one matched value: '###' when empty or five characters or shorter, otherwise its first five characters followed by '###'."""
         """Redact one matched value: '###' when empty or five characters or shorter, otherwise its first five characters followed by '###'."""
         if value is None or value == '':
             return '###'
@@ -381,5 +356,13 @@ class SensitiveDataFilter(logging.Filter):
         return f"{value_str[:5]}###"
 
 
-# The shared filter instance; see the class docstring above for the design.
+# One shared filter instance, attached to each module logger exactly once (at
+# import time). Its sensitive values are keyed by config entry, added via
+# set_entry_values() on every save_config() and dropped via remove_entry_values()
+# on unload, so it stays correct with several accounts loaded and its compiled
+# pattern does not grow over the process lifetime.
+# Previously StellantisBase.__init__ built a new one and attached it to the
+# stellantis logger, and the coordinator attached it to base's logger too;
+# nothing removed them, so every config-flow attempt and every entry reload left
+# another filter stacked on those loggers.
 SENSITIVE_DATA_FILTER = SensitiveDataFilter()
