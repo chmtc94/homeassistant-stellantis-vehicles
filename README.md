@@ -332,46 +332,43 @@ Thanks to everyone for the issues, especially to:
 - [@Jordan87](https://github.com/Jordan87);
 
 ## Support the project
-
 **The latest heroes who believe in this project** 👇
 
 **🏆 MONTHLY BEERS**  
-Harald
+Harald  
 
 **🥈 10 BEERS**  
 Rüdiger  
 Andrea Donno  
-Fabian
+Fabian  
 
 **🥉 5 BEERS**  
 Someone  
 Dieter  
 SA Energy  
-<sub>_and other heroes_</sub>
+<sub>*and other heroes*</sub>
 
 **⭐ 4 BEERS**  
-Al
+Al  
 
 **⭐ 3 BEERS**  
 Adam Szczerba  
 Hubert  
 Someone  
-<sub>_and other heroes_</sub>
+<sub>*and other heroes*</sub>
 
 **⭐ 2 BEERS**  
 Ludvik  
-Ludvik  
 Liam  
 Kristian  
-<sub>_and other heroes_</sub>
+<sub>*and other heroes*</sub>
 
 **⭐ 1 BEERS**  
+Someone  
+RapH  
 elektrofc@gmx.de  
-Mathi  
-Tarboeuf  
-<sub>_and other heroes_</sub>
+<sub>*and other heroes*</sub>
 
 ### Want to join the Club?
-
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/andreatito)  
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/W7W11C9QJ7)
